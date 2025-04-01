@@ -1,0 +1,497 @@
+PACKAGE WEBUTIL_C_API IS
+/*********************************************************************************\
+ * WEBUTIL_C_API
+ *   This Package provides a way of calling C functions in a shared library on the
+ *   client PC. Currently only win32 is supported.
+ *   The oracle.forms.webutil.cApi.CApiFunctions bean is needed in your Form to 
+ *   use these functions
+ *********************************************************************************
+ * Version 1.0.5
+ *********************************************************************************
+ * Change History
+ *   1.0.1 RVSUILIC 14/FEB/2003 - Creation 
+ *   1.0.2 DRMILLS  27/FEB/2003 - Reset LONG to the same value as INT which is fine
+ *                                for Windows & removed Tester proc
+ *   1.0.3 DRMILLS  01/MAR/2003 - Re-worked the PL/SQL API
+ *   1.0.4 DRMILLS  13/MAY/2003 - Added call to WebUtil_Core.Init
+ *   1.0.5 RVSUILIC 21/MAY/2003 - Cleaned up some comments and formatting.
+ *
+\*********************************************************************************/
+
+
+  /**
+   *  Constants to represent PL/SQL IN, OUT and INOUT parameter qualifiers
+   */
+  PARAM_IN    CONSTANT PLS_INTEGER := 50;
+  PARAM_INOUT CONSTANT PLS_INTEGER := 51;
+  PARAM_OUT   CONSTANT PLS_INTEGER := 52;
+  
+
+  /**
+   *  Constants to represent C atomic datatypes and pointers to atomic datatypes
+   *  Note that to use OUT and INOUT qualifiers the C function in the DLL *must*
+   *  use a pointer type to be able to pass information back.
+   *
+   *  The comments on the right indicate which types can be used for parameters
+   *  and which for function return types.
+   *
+   *  c_ptr is used as a generic pointer. The onlys supported use for this is to
+   *  save the pointer value from C into a PL/SQL variable, so that it may be 
+   *  passed back later to C. No operations on the pointer are supported in PL/SQL.
+   */
+  c_void          CONSTANT PLS_INTEGER := 30;            /* - not used -   */
+  c_char          CONSTANT PLS_INTEGER := 31;            /* param & return */
+  c_short         CONSTANT PLS_INTEGER := 32;            /* param & return */
+  c_int           CONSTANT PLS_INTEGER := 33;            /* param & return */
+  c_long          CONSTANT PLS_INTEGER := 33;            /* param & return *//*DRM - same as INT */
+  c_float         CONSTANT PLS_INTEGER := 35;            /* param & return */
+  c_double        CONSTANT PLS_INTEGER := 36;            /* param & return */
+
+  c_ptr           CONSTANT PLS_INTEGER := 64 + c_void;   /* param & return */
+  c_char_ptr      CONSTANT PLS_INTEGER := 64 + c_char;   /* param          */
+  c_short_ptr     CONSTANT PLS_INTEGER := 64 + c_short;  /* param          */
+  c_int_ptr       CONSTANT PLS_INTEGER := 64 + c_int;    /* param          */
+  c_long_ptr      CONSTANT PLS_INTEGER := 64 + c_long;   /* param          */
+  c_float_ptr     CONSTANT PLS_INTEGER := 64 + c_float;  /* param          */
+  c_double_ptr    CONSTANT PLS_INTEGER := 64 + c_double; /* param          */
+
+
+  /**
+   *  Abstracted types to be used for pointers and handles. The forms programmer
+   *  should not attempt any manipulation on these types, but merely obtain them as
+   *  a result of functions below, and pass them back in to other functions below.
+   */
+    SUBTYPE handleType   IS NUMBER;
+    TYPE Pointer         IS RECORD (hnd handleType);   /* C pointer             */
+    TYPE FunctionHandle  IS RECORD (hnd handleType);   /* function handle       */
+    TYPE ParameterHandle IS RECORD (hnd handleType);   /* parameter handle      */
+    TYPE ParameterList   IS RECORD (hnd handleType);   /* parameter list handle */
+
+
+  /**
+   *  IS_SUPPORTED - Check if the client is on a supported hardware platform.
+   */
+    FUNCTION IS_SUPPORTED RETURN BOOLEAN;
+
+  /**
+   *  CREATE_PARAMETER_LIST - Create an empty Parameter list
+   */
+    FUNCTION CREATE_PARAMETER_LIST RETURN ParameterList;
+
+  /**
+   *  ADD_PARAMETER - Add parameter to a parameter list, and bind its value.
+   *  Use first one if you don't want to pass any value to the OUT only param.
+   *  For OUT only strings, even though we can use prototype-1, we should still
+   *  prefer to use prototype-3 so as to allow the jvm to allocate memory
+   *  for the string judiciously. Otherwise it will allocate max (32768).
+   */
+
+  -- 1 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* numeric */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER := PARAM_OUT) RETURN ParameterHandle;
+  -- 2 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* numeric */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          num           IN NUMBER) RETURN ParameterHandle;
+  -- 3 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* string  */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          str           IN VARCHAR2, 
+                          strmaxlen     IN PLS_INTEGER) RETURN ParameterHandle;
+  -- 4 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* pointer */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          ptr           IN Pointer) RETURN ParameterHandle;
+                   
+  /**
+   *  REBIND_PARAMETER - Rebind a value to an existing parameter in a parameter list.
+   *  Note that the C datatype should NOT change.
+   *  use prototype-1 if OUT only parameter.
+   */
+  -- 1 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* numeric */
+                              param     IN ParameterHandle);
+  -- 2 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* numeric */
+                              param     IN ParameterHandle, 
+                              num       IN NUMBER);
+  -- 3 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* string  */
+                              param     IN ParameterHandle, 
+                              str       IN VARCHAR2, 
+                              strmaxlen IN PLS_INTEGER);
+  -- 4 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* pointer */
+                              param     IN ParameterHandle, 
+                              ptr       IN Pointer);
+
+  /**
+   *  GET_PARAMETER_<type> - Fetch the value of the parameter (after calling the 
+   *  C function). VARCHAR2 parameters are restricted to 32k length.
+   */
+  FUNCTION GET_PARAMETER_NUMBER (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN NUMBER;
+  FUNCTION GET_PARAMETER_STRING (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN VARCHAR2;
+  FUNCTION GET_PARAMETER_PTR    (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN Pointer;
+
+  /**
+   *  DESTROY_PARAMETERLIST - Destroy the parameter list, including all parameters
+   *  on it.
+   */
+  PROCEDURE DESTROY_PARAMETER_LIST (paramList IN ParameterList);
+
+  /**
+   *  REGISTER_FUNCTION - Register the C function and create a handle to it for future 
+   *  use. If a function will be called once only, rather pass the libName and funcName
+   *  through the matching INVOKE_XXX function for better performance.
+   */
+  FUNCTION REGISTER_FUNCTION (libName  IN VARCHAR2, 
+                              funcName IN VARCHAR2) RETURN FunctionHandle;
+
+  /**
+   *  DEREGISTER_FUNCTION - Deregister the function.
+   */
+  PROCEDURE DEREGISTER_FUNCTION (funcHandle IN FunctionHandle);
+
+  /**
+   * INVOKE_<returntype> - Invoke the C function in the DLL
+   * <returntype> matches the C return type, or is left out for
+   * void functions.
+   * Each function comes in two flavours:
+   *  with funchandle:
+   *    Uses funchandle which has previously been created by REGISTER_FUNCTION.
+   *    This is good to use in an iterative situation to avoid the overhead of
+   *    REGISTER/DEREGISTER each time.
+   *  with libName & funcName:
+   *    Good for one-off use. If will implicitly do a REGISTER/DEREGISTER of the
+   *    function. It also uses less network round trips.
+   */
+  FUNCTION INVOKE_SHORT   (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_SHORT   (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_INT     (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_INT     (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_LONG    (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_LONG    (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_CHAR    (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN CHAR;
+  FUNCTION INVOKE_CHAR    (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN CHAR;
+  FUNCTION INVOKE_FLOAT   (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_FLOAT   (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_DOUBLE  (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_DOUBLE  (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_STRING  (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN VARCHAR2;
+  FUNCTION INVOKE_STRING  (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN VARCHAR2;
+  FUNCTION INVOKE_PTR     (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN Pointer;
+  FUNCTION INVOKE_PTR     (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN Pointer;
+  PROCEDURE INVOKE        (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList);
+  PROCEDURE INVOKE        (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList);
+
+  /**
+   *  FUNCTION_COUNT - Indicates how many function handles are created but
+   *  not yet destroyed. If this value is >0 when the form exits, it indicates
+   *  that the forms programmer has not called DEREGISTER_FUNCTION for each
+   *  REGISTER_FUNCTION, and is therefore causing a memory leak.
+   *  Available to the forms programmer for testing/debugging.
+   */
+  FUNCTION FUNCTION_COUNT RETURN PLS_INTEGER;
+
+  /**
+   *  PARAMETER_LIST_COUNT - Indicates how many parameter lists are created but
+   *  not yet destroyed. If this value is >0 when the form exits, it indicates
+   *  that the forms programmer has not called DESTROY_PARAMETERLIST for each
+   *  CREATE_PARAMETERLIST, and is therefore causing a memory leak.
+   *  Available to the forms programmer for testing/debugging.
+   */
+  FUNCTION PARAMETER_LIST_COUNT RETURN PLS_INTEGER;
+
+
+    /**
+     *  ID_NULL - Check whether a supplied handle has a NULL value.
+     */
+  FUNCTION ID_NULL(handle IN Pointer)        RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN FunctionHandle) RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN ParameterHandle)RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN ParameterList)  RETURN BOOLEAN;
+
+END WEBUTIL_C_API;
+-------------------------------------------------------
+PACKAGE WEBUTIL_C_API IS
+/*********************************************************************************\
+ * WEBUTIL_C_API
+ *   This Package provides a way of calling C functions in a shared library on the
+ *   client PC. Currently only win32 is supported.
+ *   The oracle.forms.webutil.cApi.CApiFunctions bean is needed in your Form to 
+ *   use these functions
+ *********************************************************************************
+ * Version 1.0.5
+ *********************************************************************************
+ * Change History
+ *   1.0.1 RVSUILIC 14/FEB/2003 - Creation 
+ *   1.0.2 DRMILLS  27/FEB/2003 - Reset LONG to the same value as INT which is fine
+ *                                for Windows & removed Tester proc
+ *   1.0.3 DRMILLS  01/MAR/2003 - Re-worked the PL/SQL API
+ *   1.0.4 DRMILLS  13/MAY/2003 - Added call to WebUtil_Core.Init
+ *   1.0.5 RVSUILIC 21/MAY/2003 - Cleaned up some comments and formatting.
+ *
+\*********************************************************************************/
+
+
+  /**
+   *  Constants to represent PL/SQL IN, OUT and INOUT parameter qualifiers
+   */
+  PARAM_IN    CONSTANT PLS_INTEGER := 50;
+  PARAM_INOUT CONSTANT PLS_INTEGER := 51;
+  PARAM_OUT   CONSTANT PLS_INTEGER := 52;
+  
+
+  /**
+   *  Constants to represent C atomic datatypes and pointers to atomic datatypes
+   *  Note that to use OUT and INOUT qualifiers the C function in the DLL *must*
+   *  use a pointer type to be able to pass information back.
+   *
+   *  The comments on the right indicate which types can be used for parameters
+   *  and which for function return types.
+   *
+   *  c_ptr is used as a generic pointer. The onlys supported use for this is to
+   *  save the pointer value from C into a PL/SQL variable, so that it may be 
+   *  passed back later to C. No operations on the pointer are supported in PL/SQL.
+   */
+  c_void          CONSTANT PLS_INTEGER := 30;            /* - not used -   */
+  c_char          CONSTANT PLS_INTEGER := 31;            /* param & return */
+  c_short         CONSTANT PLS_INTEGER := 32;            /* param & return */
+  c_int           CONSTANT PLS_INTEGER := 33;            /* param & return */
+  c_long          CONSTANT PLS_INTEGER := 33;            /* param & return *//*DRM - same as INT */
+  c_float         CONSTANT PLS_INTEGER := 35;            /* param & return */
+  c_double        CONSTANT PLS_INTEGER := 36;            /* param & return */
+
+  c_ptr           CONSTANT PLS_INTEGER := 64 + c_void;   /* param & return */
+  c_char_ptr      CONSTANT PLS_INTEGER := 64 + c_char;   /* param          */
+  c_short_ptr     CONSTANT PLS_INTEGER := 64 + c_short;  /* param          */
+  c_int_ptr       CONSTANT PLS_INTEGER := 64 + c_int;    /* param          */
+  c_long_ptr      CONSTANT PLS_INTEGER := 64 + c_long;   /* param          */
+  c_float_ptr     CONSTANT PLS_INTEGER := 64 + c_float;  /* param          */
+  c_double_ptr    CONSTANT PLS_INTEGER := 64 + c_double; /* param          */
+
+
+  /**
+   *  Abstracted types to be used for pointers and handles. The forms programmer
+   *  should not attempt any manipulation on these types, but merely obtain them as
+   *  a result of functions below, and pass them back in to other functions below.
+   */
+    SUBTYPE handleType   IS NUMBER;
+    TYPE Pointer         IS RECORD (hnd handleType);   /* C pointer             */
+    TYPE FunctionHandle  IS RECORD (hnd handleType);   /* function handle       */
+    TYPE ParameterHandle IS RECORD (hnd handleType);   /* parameter handle      */
+    TYPE ParameterList   IS RECORD (hnd handleType);   /* parameter list handle */
+
+
+  /**
+   *  IS_SUPPORTED - Check if the client is on a supported hardware platform.
+   */
+    FUNCTION IS_SUPPORTED RETURN BOOLEAN;
+
+  /**
+   *  CREATE_PARAMETER_LIST - Create an empty Parameter list
+   */
+    FUNCTION CREATE_PARAMETER_LIST RETURN ParameterList;
+
+  /**
+   *  ADD_PARAMETER - Add parameter to a parameter list, and bind its value.
+   *  Use first one if you don't want to pass any value to the OUT only param.
+   *  For OUT only strings, even though we can use prototype-1, we should still
+   *  prefer to use prototype-3 so as to allow the jvm to allocate memory
+   *  for the string judiciously. Otherwise it will allocate max (32768).
+   */
+
+  -- 1 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* numeric */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER := PARAM_OUT) RETURN ParameterHandle;
+  -- 2 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* numeric */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          num           IN NUMBER) RETURN ParameterHandle;
+  -- 3 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* string  */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          str           IN VARCHAR2, 
+                          strmaxlen     IN PLS_INTEGER) RETURN ParameterHandle;
+  -- 4 --
+  FUNCTION ADD_PARAMETER (paramList     IN ParameterList,           /* pointer */
+                          parameterType IN PLS_INTEGER, 
+                          inOut         IN PLS_INTEGER, 
+                          ptr           IN Pointer) RETURN ParameterHandle;
+                   
+  /**
+   *  REBIND_PARAMETER - Rebind a value to an existing parameter in a parameter list.
+   *  Note that the C datatype should NOT change.
+   *  use prototype-1 if OUT only parameter.
+   */
+  -- 1 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* numeric */
+                              param     IN ParameterHandle);
+  -- 2 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* numeric */
+                              param     IN ParameterHandle, 
+                              num       IN NUMBER);
+  -- 3 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* string  */
+                              param     IN ParameterHandle, 
+                              str       IN VARCHAR2, 
+                              strmaxlen IN PLS_INTEGER);
+  -- 4 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList,       /* pointer */
+                              param     IN ParameterHandle, 
+                              ptr       IN Pointer);
+
+  /**
+   *  GET_PARAMETER_<type> - Fetch the value of the parameter (after calling the 
+   *  C function). VARCHAR2 parameters are restricted to 32k length.
+   */
+  FUNCTION GET_PARAMETER_NUMBER (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN NUMBER;
+  FUNCTION GET_PARAMETER_STRING (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN VARCHAR2;
+  FUNCTION GET_PARAMETER_PTR    (paramList IN ParameterList, 
+                                 param     IN ParameterHandle) RETURN Pointer;
+
+  /**
+   *  DESTROY_PARAMETERLIST - Destroy the parameter list, including all parameters
+   *  on it.
+   */
+  PROCEDURE DESTROY_PARAMETER_LIST (paramList IN ParameterList);
+
+  /**
+   *  REGISTER_FUNCTION - Register the C function and create a handle to it for future 
+   *  use. If a function will be called once only, rather pass the libName and funcName
+   *  through the matching INVOKE_XXX function for better performance.
+   */
+  FUNCTION REGISTER_FUNCTION (libName  IN VARCHAR2, 
+                              funcName IN VARCHAR2) RETURN FunctionHandle;
+
+  /**
+   *  DEREGISTER_FUNCTION - Deregister the function.
+   */
+  PROCEDURE DEREGISTER_FUNCTION (funcHandle IN FunctionHandle);
+
+  /**
+   * INVOKE_<returntype> - Invoke the C function in the DLL
+   * <returntype> matches the C return type, or is left out for
+   * void functions.
+   * Each function comes in two flavours:
+   *  with funchandle:
+   *    Uses funchandle which has previously been created by REGISTER_FUNCTION.
+   *    This is good to use in an iterative situation to avoid the overhead of
+   *    REGISTER/DEREGISTER each time.
+   *  with libName & funcName:
+   *    Good for one-off use. If will implicitly do a REGISTER/DEREGISTER of the
+   *    function. It also uses less network round trips.
+   */
+  FUNCTION INVOKE_SHORT   (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_SHORT   (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_INT     (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_INT     (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_LONG    (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_LONG    (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN PLS_INTEGER;
+  FUNCTION INVOKE_CHAR    (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN CHAR;
+  FUNCTION INVOKE_CHAR    (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN CHAR;
+  FUNCTION INVOKE_FLOAT   (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_FLOAT   (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_DOUBLE  (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_DOUBLE  (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN NUMBER;
+  FUNCTION INVOKE_STRING  (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN VARCHAR2;
+  FUNCTION INVOKE_STRING  (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN VARCHAR2;
+  FUNCTION INVOKE_PTR     (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList) RETURN Pointer;
+  FUNCTION INVOKE_PTR     (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList) RETURN Pointer;
+  PROCEDURE INVOKE        (funcHandle IN FunctionHandle, 
+                           paramList  IN ParameterList);
+  PROCEDURE INVOKE        (libName    IN VARCHAR2, 
+                           funcName   IN VARCHAR2, 
+                           paramList  IN ParameterList);
+
+  /**
+   *  FUNCTION_COUNT - Indicates how many function handles are created but
+   *  not yet destroyed. If this value is >0 when the form exits, it indicates
+   *  that the forms programmer has not called DEREGISTER_FUNCTION for each
+   *  REGISTER_FUNCTION, and is therefore causing a memory leak.
+   *  Available to the forms programmer for testing/debugging.
+   */
+  FUNCTION FUNCTION_COUNT RETURN PLS_INTEGER;
+
+  /**
+   *  PARAMETER_LIST_COUNT - Indicates how many parameter lists are created but
+   *  not yet destroyed. If this value is >0 when the form exits, it indicates
+   *  that the forms programmer has not called DESTROY_PARAMETERLIST for each
+   *  CREATE_PARAMETERLIST, and is therefore causing a memory leak.
+   *  Available to the forms programmer for testing/debugging.
+   */
+  FUNCTION PARAMETER_LIST_COUNT RETURN PLS_INTEGER;
+
+
+    /**
+     *  ID_NULL - Check whether a supplied handle has a NULL value.
+     */
+  FUNCTION ID_NULL(handle IN Pointer)        RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN FunctionHandle) RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN ParameterHandle)RETURN BOOLEAN;
+  FUNCTION ID_NULL(handle IN ParameterList)  RETURN BOOLEAN;
+
+END WEBUTIL_C_API;
