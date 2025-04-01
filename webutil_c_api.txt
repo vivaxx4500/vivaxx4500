@@ -1,0 +1,677 @@
+ACKAGE BODY WEBUTIL_C_API IS
+
+  INVALID_PARAM_EXCEPTION EXCEPTION;
+
+  m_funcHandleCount PLS_INTEGER := 0;
+  m_paramListCount PLS_INTEGER := 0;
+
+  --
+  -- PRIVATE FUNCTIONS
+  --
+
+
+  -- Validate if the parameter type supplied is supported
+  FUNCTION ValidParameterType (paramType IN PLS_INTEGER) RETURN BOOLEAN IS
+  BEGIN
+    IF paramType IN (c_char,
+                     c_short,
+                     c_int,
+                     c_long,
+                     c_float,
+                     c_double,
+                     c_ptr,
+                     c_char_ptr,
+                     c_short_ptr,
+                     c_int_ptr,
+                     c_long_ptr,
+                     c_float_ptr,
+                     c_double_ptr
+                     ) THEN
+      RETURN TRUE;
+    END IF;
+    
+    RETURN FALSE;
+  END ValidParameterType;
+
+  -- Validate the INOUT specifier
+  FUNCTION ValidInOut (inOut IN PLS_INTEGER) RETURN BOOLEAN IS
+  BEGIN
+    IF inOut IN (param_IN, param_INOUT, param_OUT) THEN
+      RETURN TRUE;
+    END IF;
+    
+    RETURN FALSE;
+  END ValidInOut;
+
+
+  -- Interface between INVOKE_XXX and the bean
+  FUNCTION INVOKE_WU (funcHandle IN FunctionHandle, paramList ParameterList, retType IN PLS_INTEGER) RETURN VARCHAR2 IS
+    strResult VARCHAR2(32767);
+  BEGIN
+    IF id_null(paramList) THEN
+      WebUtil_Core.setProperty (WebUtil_Core.WUL_PACKAGE, 'WUL_INVOKE_SPEC', TO_CHAR(funcHandle.hnd) || '|' 
+                                                                             || '(null)'                || '|' 
+                                                                             || TO_CHAR(retType),false);
+    ELSE                                                                             
+      WebUtil_Core.setProperty (WebUtil_Core.WUL_PACKAGE, 'WUL_INVOKE_SPEC', TO_CHAR(funcHandle.hnd) || '|' 
+                                                                             || TO_CHAR(paramList.hnd)  || '|' 
+                                                                             || TO_CHAR(retType), false);
+    END IF;                                                                             
+      strResult := WebUtil_Core.getProperty (WebUtil_Core.WUL_PACKAGE, 'WUL_INVOKE');
+      RETURN strResult;
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.INVOKE_WU will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+
+  END INVOKE_WU;
+
+
+  FUNCTION INVOKE_WU (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList, retType IN PLS_INTEGER) RETURN VARCHAR2 IS
+    strResult VARCHAR2(32767);
+  BEGIN
+    IF id_null(paramList) THEN
+      WebUtil_Core.setProperty (WebUtil_Core.WUL_PACKAGE, 'WUL_INVOKEONCE_SPEC', libName                || '|' 
+                                                                                 || funcName               || '|' 
+                                                                                 || '(null)'               || '|' 
+                                                                                 || TO_CHAR(retType),false);
+    ELSE                                                                                 
+      WebUtil_Core.setProperty (WebUtil_Core.WUL_PACKAGE, 'WUL_INVOKEONCE_SPEC', libName                || '|' 
+                                                                                 || funcName               || '|' 
+                                                                                 || TO_CHAR(paramList.hnd) || '|' 
+                                                                                 || TO_CHAR(retType),false);
+    END IF;                                                                                 
+    strResult := WebUtil_Core.getProperty(WebUtil_Core.WUL_PACKAGE,'WUL_INVOKE');
+    RETURN TO_NUMBER (strResult);
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.INVOKE_WU will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END INVOKE_WU;
+
+
+  -- Template functions for INVOKE_SHORT/INT/LONG
+  FUNCTION INVOKE_INTEGRAL (funcHandle IN FunctionHandle, paramList ParameterList, retType IN PLS_INTEGER) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN TO_NUMBER (INVOKE_WU (funcHandle, paramList, retType));
+  END INVOKE_INTEGRAL;
+
+
+  FUNCTION INVOKE_INTEGRAL (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList, retType IN PLS_INTEGER) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN TO_NUMBER (INVOKE_WU (libName, funcName, paramList, retType));
+  END INVOKE_INTEGRAL;
+
+
+  -- Template functions for INVOKE_FLOAT/DOUBLE
+  FUNCTION INVOKE_REAL (funcHandle IN FunctionHandle, paramList ParameterList, retType IN PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    RETURN TO_NUMBER (INVOKE_WU (funcHandle, paramList, retType));
+  END INVOKE_REAL;
+
+
+  FUNCTION INVOKE_REAL (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList, retType IN PLS_INTEGER) RETURN NUMBER IS
+  BEGIN
+    RETURN TO_NUMBER (INVOKE_WU (libName, funcName, paramList, retType));
+  END INVOKE_REAL;
+
+
+  FUNCTION ADD_PARAMETER_WU (paramList IN ParameterList, parameterType IN PLS_INTEGER, 
+                             inOut IN PLS_INTEGER, str IN VARCHAR2, strmaxlen IN PLS_INTEGER) RETURN ParameterHandle IS
+    paramHnd ParameterHandle;
+  BEGIN
+    IF str IS NULL THEN
+      WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES', 'B|'                   -- indicate Bind
+                                                                                 || TO_CHAR(paramList.hnd) || '|'
+                                                                                 || TO_CHAR(parameterType) || '|'
+                                                                                 || TO_CHAR(inOut)         || '|'
+                                                                                 || TO_CHAR(strmaxlen)     || '|'
+                                                                                 || '(null)',false);
+      ELSE                                                                               
+        WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES', 'B|'                   -- indicate Bind
+                                                                                   || TO_CHAR(paramList.hnd) || '|'
+                                                                                   || TO_CHAR(parameterType) || '|'
+                                                                                   || TO_CHAR(inOut)         || '|'
+                                                                                   || TO_CHAR(strmaxlen)     || '|'
+                                                                                   || str,false);
+      END IF;                                                                               
+
+      paramHnd.hnd := TO_NUMBER(WebUtil_Core.GetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_ADD_PARAMETER'));
+      RETURN paramHnd;
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.ADD_PARAMETER_WU will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END ADD_PARAMETER_WU;
+
+
+
+  --
+  -- PUBLIC FUNCTIONS
+  --
+
+  FUNCTION IS_SUPPORTED RETURN BOOLEAN IS
+    ClientOS PLS_INTEGER;
+  BEGIN
+    ClientOS := WebUtil_Core.GetClientOSFamily;
+    if ClientOS = WebUtil_Core.CLIENT_PLATFORM_WIN32 then
+    /*if ClientOS in (WebUtil_Core.CLIENT_PLATFORM_WIN32, 
+                     WebUtil_Core.CLIENT_PLATFORM_SOLARIS) then */
+      return true;
+    end if;
+
+    return false;
+
+  EXCEPTION
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.IS_SUPPORTED will not work');
+      RAISE TOOL_ERR.TOOL_ERROR;                                 
+      return null;
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE;
+    when VALUE_ERROR then
+      RAISE TOOL_ERR.TOOL_ERROR; 
+    when TOOL_ERR.TOOL_ERROR then 
+      RAISE;
+  END IS_SUPPORTED;    
+
+
+  FUNCTION CREATE_PARAMETER_LIST RETURN ParameterList IS
+    paramListHandle ParameterList;
+    strHnd VARCHAR2(8);
+  BEGIN
+    strHnd := WebUtil_Core.getProperty(WebUtil_Core.WUL_PACKAGE,'WUL_CREATE_PARAMLIST');
+
+    if (strHnd is null) or (strHnd = '') then
+      raise TOOL_ERR.TOOL_ERROR;
+    end if;
+    
+    paramListHandle.hnd := TO_NUMBER (strHnd);
+    m_paramListCount := m_paramListCount + 1;
+    
+    RETURN paramListHandle;
+
+EXCEPTION  
+  when WebUtil_Core.BEAN_NOT_REGISTERED then 
+    WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                            ||' bean not found. WEBUTIL_C_API.CREATE_PARAMETER_LIST will not work');
+    RAISE FORM_TRIGGER_FAILURE;  
+  when WebUtil_Core.PROPERTY_ERROR then 
+    RAISE FORM_TRIGGER_FAILURE;  
+  when VALUE_ERROR then
+    RAISE TOOL_ERR.TOOL_ERROR; 
+END CREATE_PARAMETER_LIST;
+
+
+/*
+** For Out only parameters, we don't need to pass any value. If we intend to pass
+** a maximum length value for strings, we can call 3rd prototype by passing null for
+** the string value and a desired length.
+**/
+
+  -- 1 --
+  FUNCTION ADD_PARAMETER (paramList IN ParameterList, parameterType IN PLS_INTEGER, 
+                         inOut IN PLS_INTEGER := PARAM_OUT) RETURN ParameterHandle IS
+    paramHnd ParameterHandle;
+  BEGIN
+    if inOut = PARAM_OUT then
+      WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES',
+                               'B|'                   -- indicate Bind
+                                || TO_CHAR(paramList.hnd) || '|'
+                                || TO_CHAR(parameterType) || '|'
+                                || TO_CHAR(inOut),
+                               false);
+      paramHnd.hnd := TO_NUMBER(WebUtil_Core.GetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_ADD_PARAMETER'));
+      RETURN paramHnd;
+    else
+      raise INVALID_PARAM_EXCEPTION;
+    end if;
+  exception
+    when INVALID_PARAM_EXCEPTION then
+      WebUtil_Core.Error(Webutil_Core.WUL_PACKAGE,923, 'WEBUTIL_C_API.ADD_PARAMETER');
+    RAISE FORM_TRIGGER_FAILURE;  
+  END ADD_PARAMETER;
+
+  -- 2 --
+  FUNCTION ADD_PARAMETER (paramList IN ParameterList, parameterType IN PLS_INTEGER, 
+                          inOut IN PLS_INTEGER, num IN NUMBER) RETURN ParameterHandle IS
+  BEGIN
+    if NOT inOut = PARAM_OUT AND num is null then
+      raise INVALID_PARAM_EXCEPTION;
+    elsif inOut = PARAM_OUT then
+      return ADD_PARAMETER(paramList, parameterType); -- call prototype-1
+    end if;
+
+    RETURN ADD_PARAMETER_WU (paramList, parameterType, inOut, TO_CHAR (num), 0);
+  exception
+    when INVALID_PARAM_EXCEPTION then
+      WebUtil_Core.Error(Webutil_Core.WUL_PACKAGE,923, 'WEBUTIL_C_API.ADD_PARAMETER');
+      RAISE FORM_TRIGGER_FAILURE;  
+  END ADD_PARAMETER;
+
+
+  -- 3 --
+  FUNCTION ADD_PARAMETER (paramList IN ParameterList, parameterType IN PLS_INTEGER, 
+                          inOut IN PLS_INTEGER,
+                          str IN VARCHAR2, -- can be null even for IN or INOUT 
+                          strmaxlen IN PLS_INTEGER) RETURN ParameterHandle IS
+  BEGIN
+    if inOut = PARAM_OUT AND strmaxlen is null then
+      return ADD_PARAMETER(paramList, parameterType); -- call prototype-1
+    elsif strmaxlen is null then
+       raise INVALID_PARAM_EXCEPTION;
+    end if;
+
+    IF strmaxlen < 1 OR strmaxlen > 32768 THEN
+      RAISE TOOL_ERR.TOOL_ERROR;
+    END IF;
+
+    RETURN ADD_PARAMETER_WU (paramList, parameterType, inOut, str, strmaxlen);
+
+  exception
+    when INVALID_PARAM_EXCEPTION then
+      WebUtil_Core.Error(Webutil_Core.WUL_PACKAGE,919, 'WEBUTIL_C_API.ADD_PARAMETER');
+    RAISE FORM_TRIGGER_FAILURE;  
+  END ADD_PARAMETER;
+
+  -- 4 --
+  FUNCTION ADD_PARAMETER (paramList IN ParameterList, parameterType IN PLS_INTEGER, 
+                          inOut IN PLS_INTEGER, ptr IN Pointer) RETURN ParameterHandle IS
+  BEGIN
+    if NOT inOut = PARAM_OUT AND ID_NULL(ptr) then
+        raise INVALID_PARAM_EXCEPTION;
+    elsif inOut = PARAM_OUT then
+        return ADD_PARAMETER(paramList, parameterType); -- call prototype-1
+    end if;
+
+    RETURN ADD_PARAMETER_WU (paramList, parameterType, inOut, TO_CHAR (ptr.hnd), 0);
+  exception
+    when INVALID_PARAM_EXCEPTION then
+      WebUtil_Core.Error(Webutil_Core.WUL_PACKAGE,923, 'WEBUTIL_C_API.ADD_PARAMETER');
+      RAISE FORM_TRIGGER_FAILURE;  
+  END ADD_PARAMETER;
+
+
+  -- 1 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList, param IN ParameterHandle) IS
+  BEGIN
+      WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES',
+                               'R|'                   -- indicate Rebind
+                                || TO_CHAR(paramList.hnd) || '|'
+                                || TO_CHAR(param.hnd),
+                               false);
+    -- No need to WebUtil_Core.GetProperty anything to do the actual rebind; it is implicitly done
+    -- by WebUtil_Core.SetProperty of WUL_PARAM_PROPERTIES to 'R|....' to save a network trip
+    -- If parameter is not OUT only, then client java will raise error for not passing value
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.REBIND_PARAMETER will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END REBIND_PARAMETER;
+
+  -- 2 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList, param IN ParameterHandle, 
+                              num IN NUMBER) IS
+  BEGIN
+    WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES', 'R|'                   -- indicate Rebind
+                                                                           || TO_CHAR(paramList.hnd) || '|'
+                                                                           || TO_CHAR(param.hnd)     || '|'
+                                                                           || '0'                    || '|'
+                                                                           || TO_CHAR(num), false);
+    -- No need to WebUtil_Core.GetProperty anything to do the actual rebind; it is implicitly done
+    -- by WebUtil_Core.SetProperty of WUL_PARAM_PROPERTIES to 'R|....' to save a network trip
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.REBIND_PARAMETER will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END REBIND_PARAMETER;
+
+  -- 3 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList, param IN ParameterHandle, 
+                              str IN VARCHAR2, strmaxlen IN PLS_INTEGER) IS
+  BEGIN
+    IF strmaxlen < 1 OR LENGTH (str) > strmaxlen THEN
+        RAISE TOOL_ERR.TOOL_ERROR;
+    END IF;
+    WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES', 'R|'                   -- indicate Rebind
+                                                                              || TO_CHAR(paramList.hnd) || '|'
+                                                                              || TO_CHAR(param.hnd)     || '|'
+                                                                              || TO_CHAR(strmaxlen)     || '|'
+                                                                              || str, false);
+    -- No need to WebUtil_Core.GetProperty anything to do the actual rebind; it is implicitly done
+    -- by WebUtil_Core.SetProperty of WUL_PARAM_PROPERTIES to 'R|....' to save a network trip
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.REBIND_PARAMETER will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END REBIND_PARAMETER;
+
+  -- 4 --
+  PROCEDURE REBIND_PARAMETER (paramList IN ParameterList, param IN ParameterHandle, 
+                              ptr IN Pointer) IS
+  BEGIN
+    REBIND_PARAMETER(paramList, param, ptr.hnd);
+  END REBIND_PARAMETER;
+
+
+  FUNCTION GET_PARAMETER_STRING (paramList IN ParameterList, param IN ParameterHandle) RETURN VARCHAR2 IS
+    paramVal VARCHAR2(32767);
+  BEGIN
+    -- Note: It is up to the Java interface to guarantee sending back a string that is shorter than strmaxlen
+    WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_PROPERTIES', 'F|'                   -- indicate Fetch
+                                                                              || TO_CHAR(paramList.hnd) || '|'
+                                                                              || TO_CHAR(param.hnd),false);
+    paramVal := WebUtil_Core.GetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_PARAM_VALUE');
+    
+    RETURN paramVal;
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.REBIND_PARAMETER will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END GET_PARAMETER_STRING;
+
+
+  FUNCTION GET_PARAMETER_NUMBER (paramList IN ParameterList, param IN ParameterHandle) RETURN NUMBER IS
+  BEGIN
+    RETURN TO_NUMBER (GET_PARAMETER_STRING (paramList, param));
+
+  EXCEPTION
+    when VALUE_ERROR then
+      RAISE TOOL_ERR.TOOL_ERROR; 
+  END GET_PARAMETER_NUMBER;
+
+
+  FUNCTION GET_PARAMETER_PTR (paramList IN ParameterList, param IN ParameterHandle) RETURN Pointer IS
+    ptr Pointer;
+  BEGIN
+    ptr.hnd := TO_NUMBER (GET_PARAMETER_STRING (paramList, param));
+
+    RETURN ptr;
+
+  EXCEPTION
+    when VALUE_ERROR then
+      RAISE TOOL_ERR.TOOL_ERROR; 
+  END GET_PARAMETER_PTR;
+
+
+  PROCEDURE DESTROY_PARAMETER_LIST (paramList IN ParameterList) IS
+  BEGIN
+    WebUtil_Core.SetProperty(WebUtil_Core.WUL_PACKAGE,'WUL_DESTROY_PARAMLIST', TO_CHAR(paramList.hnd),false);
+    m_paramListCount := m_paramListCount - 1;
+
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.DESTROY_PARAMETER_LIST will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END DESTROY_PARAMETER_LIST;
+
+
+  FUNCTION REGISTER_FUNCTION (libName IN VARCHAR2, funcName IN VARCHAR2) 
+                              RETURN FunctionHandle IS
+    strHnd  VARCHAR2(8);                            
+    funcHnd FunctionHandle;
+  BEGIN
+    WebUtil_Core.setProperty(WebUtil_Core.WUL_PACKAGE,'WUL_FUNCTION_SPEC', libName || '|' || funcName);
+    strHnd := WebUtil_Core.getProperty(WebUtil_Core.WUL_PACKAGE,'WUL_REGISTER_FUNCTION');
+    funcHnd.hnd := TO_NUMBER (strHnd);
+    if NOT ID_NULL(funcHnd) then
+      m_funcHandleCount := m_funcHandleCount + 1;
+    end if;
+
+    RETURN funcHnd;
+    
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.REGISTER_FUNCTION will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+    when VALUE_ERROR then
+        RAISE TOOL_ERR.TOOL_ERROR; 
+  END REGISTER_FUNCTION;
+
+
+  PROCEDURE DEREGISTER_FUNCTION (funcHandle IN FunctionHandle) IS
+  BEGIN
+    WebUtil_Core.setProperty(WebUtil_Core.WUL_PACKAGE,'WUL_DEREGISTER_FUNCTION', TO_CHAR(funcHandle.hnd),false);
+    m_funcHandleCount := m_funcHandleCount - 1;
+  EXCEPTION  
+    when WebUtil_Core.BEAN_NOT_REGISTERED then 
+      WebUtil_Core.ErrorAlert(WebUtil_Core.getImplClass(WebUtil_Core.WUL_PACKAGE)
+                              ||' bean not found. WEBUTIL_C_API.DEREGISTER_FUNCTION will not work');
+      RAISE FORM_TRIGGER_FAILURE;  
+    when WebUtil_Core.PROPERTY_ERROR then 
+      RAISE FORM_TRIGGER_FAILURE;  
+  END DEREGISTER_FUNCTION;
+
+
+  FUNCTION INVOKE_SHORT (funcHandle IN FunctionHandle, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (funcHandle, paramList, c_short);
+  END INVOKE_SHORT;
+
+
+  FUNCTION INVOKE_SHORT (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (libName, funcName, paramList, c_short);
+  END INVOKE_SHORT;
+
+
+  FUNCTION INVOKE_INT (funcHandle IN FunctionHandle, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (funcHandle, paramList, c_int);
+  END INVOKE_INT;
+
+
+  FUNCTION INVOKE_INT (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (libName, funcName, paramList, c_int);
+  END INVOKE_INT;
+
+
+  FUNCTION INVOKE_LONG (funcHandle IN FunctionHandle, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (funcHandle, paramList, c_long);
+  END INVOKE_LONG;
+
+
+  FUNCTION INVOKE_LONG (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN INVOKE_INTEGRAL (libName, funcName, paramList, c_long);
+  END INVOKE_LONG;
+
+
+  FUNCTION INVOKE_FLOAT (funcHandle IN FunctionHandle, paramList ParameterList) RETURN NUMBER IS
+  BEGIN
+    RETURN INVOKE_REAL (funcHandle, paramList, c_float);
+  END INVOKE_FLOAT;
+
+
+  FUNCTION INVOKE_FLOAT (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN NUMBER IS
+  BEGIN
+    RETURN INVOKE_REAL (libName, funcName, paramList, c_float);
+  END INVOKE_FLOAT;
+
+
+  FUNCTION INVOKE_DOUBLE (funcHandle IN FunctionHandle, paramList ParameterList) RETURN NUMBER IS
+  BEGIN
+    RETURN INVOKE_REAL (funcHandle, paramList, c_double);
+  END INVOKE_DOUBLE;
+
+
+  FUNCTION INVOKE_DOUBLE (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN NUMBER IS
+  BEGIN
+    RETURN INVOKE_REAL (libName, funcName, paramList, c_double);
+  END INVOKE_DOUBLE;
+
+
+  FUNCTION INVOKE_CHAR (funcHandle IN FunctionHandle, paramList ParameterList) RETURN CHAR IS
+    charResult CHAR;
+  BEGIN
+    charResult := INVOKE_WU (funcHandle, paramList, c_char);
+    RETURN charResult;
+  END INVOKE_CHAR;
+
+
+  FUNCTION INVOKE_CHAR (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN CHAR IS
+    charResult  CHAR;
+  BEGIN
+    charResult := INVOKE_WU (libName, funcName, paramList, c_char);
+
+    RETURN charResult;
+  END INVOKE_CHAR;
+
+
+  FUNCTION INVOKE_STRING (funcHandle IN FunctionHandle, paramList ParameterList) RETURN VARCHAR2 IS
+    strResult  VARCHAR2(32767);
+  BEGIN
+    strResult := INVOKE_WU (funcHandle, paramList, c_char_ptr); 
+
+    return strResult;
+  END INVOKE_STRING;
+
+
+  FUNCTION INVOKE_STRING (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN VARCHAR2 IS
+    strResult  VARCHAR2(32767);
+  BEGIN
+    strResult := INVOKE_WU (libName, funcName, paramList, c_char_ptr);
+
+    RETURN strResult;
+  END INVOKE_STRING;
+
+
+  FUNCTION INVOKE_PTR (funcHandle IN FunctionHandle, paramList ParameterList) RETURN Pointer IS
+    strResult VARCHAR2(40);
+    ptrResult Pointer;
+  BEGIN
+    strResult := INVOKE_WU (funcHandle, paramList, c_ptr);
+    ptrResult.hnd := TO_NUMBER (strResult);
+
+    RETURN ptrResult;
+
+  EXCEPTION
+    when VALUE_ERROR then
+      RAISE TOOL_ERR.TOOL_ERROR; 
+  END INVOKE_PTR;
+
+
+  FUNCTION INVOKE_PTR (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) RETURN Pointer IS
+    strResult VARCHAR2(40);
+    ptrResult Pointer;
+  BEGIN
+    strResult := INVOKE_WU (libName, funcName, paramList, c_ptr);
+    ptrResult.hnd := TO_NUMBER (strResult);
+
+    RETURN ptrResult;
+
+  EXCEPTION
+    when VALUE_ERROR then
+      RAISE TOOL_ERR.TOOL_ERROR; 
+  END INVOKE_PTR;
+
+
+  PROCEDURE INVOKE (funcHandle IN FunctionHandle, paramList ParameterList) IS
+    dummy VARCHAR2(20);
+  BEGIN
+    dummy := INVOKE_WU (funcHandle, paramList, c_void);
+  END INVOKE;
+
+
+  PROCEDURE INVOKE (libName IN VARCHAR2, funcName IN VARCHAR2, paramList ParameterList) IS
+    dummy VARCHAR2(20);
+  BEGIN
+    dummy := INVOKE_WU (libName, funcName, paramList, c_void);
+  END INVOKE;
+
+
+  FUNCTION FUNCTION_COUNT RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN m_funcHandleCount;
+  END FUNCTION_COUNT;
+
+
+  FUNCTION PARAMETER_LIST_COUNT RETURN PLS_INTEGER IS
+  BEGIN
+    RETURN m_paramListCount;
+  END PARAMETER_LIST_COUNT;
+
+
+  FUNCTION ID_NULL(handle IN Pointer)        RETURN BOOLEAN is
+  BEGIN
+    if handle.hnd is null then 
+      return TRUE;
+    else
+      return FALSE;
+    end if;
+  END ID_NULL;
+
+
+  FUNCTION ID_NULL(handle IN FunctionHandle) RETURN BOOLEAN is
+  BEGIN
+    if handle.hnd is null then 
+      return TRUE;
+    else
+      return FALSE;
+    end if;
+  END ID_NULL;
+
+
+  FUNCTION ID_NULL(handle IN ParameterHandle) RETURN BOOLEAN is
+  BEGIN
+    if handle.hnd is null then 
+      return TRUE;
+    else
+      return FALSE;
+    end if;
+  END ID_NULL;
+
+
+  FUNCTION ID_NULL(handle IN ParameterList) RETURN BOOLEAN is
+  BEGIN
+    if handle.hnd is null then 
+      return TRUE;
+    else
+      return FALSE;
+    end if;
+  END ID_NULL;
+
+
+/*
+ * PACKAGE INITIALISATION
+ */
+BEGIN 
+  -- Ensure all is initialised
+  WebUtil_Core.Init;
+END WEBUTIL_C_API;
