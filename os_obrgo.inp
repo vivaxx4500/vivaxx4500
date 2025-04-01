@@ -1,0 +1,2642 @@
+
+/* Copyright (c) 1988 by the Oracle Corporation */
+
+
+SQL*FORMS_VERSION = 03.00.15.03.01
+
+DEFINE FORM
+
+   NAME = os_obrgo
+   TITLE = Pregled preseka otvorenih stavki kupaca
+   DEFAULT_MENU_APPLICATION = 
+   ROOT_MENU = 
+   GROUP_NAME = 
+   MOUSE_NAVIGATION_LIMIT = 
+   VALIDATION_UNIT = 
+
+   DEFINE PROCEDURE
+
+      NAME = fill_prs
+      DEFINITION = <<<
+      procedure fill_prs is
+      begin
+      null;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE PROCEDURE
+
+      NAME = pej
+      DEFINITION = <<<
+      procedure pej is
+         srj1 srj.srj_sifra%type;
+         anal_id0 char(3);
+         cursor c_srj is select srj_sifra from pis_pej
+            where srj_sifra = :ipej.srj_sifra
+              and upper(pis_ime) = upper(user)
+              and pis_ime in (select pis_ime from pis_user
+                               where upper(pis_ime) = upper(user)
+                                 and pis_part = anal_id0
+                                 and pis_akt = 'A')
+              and exists (select srj_sifra from srj
+                           where srj_sifra like pis_pej.srj_sifra);
+      begin
+         if upper(user) <> 'PIS' then
+            anal_id0 := :global.anal_id;
+            open c_srj;
+            fetch c_srj into srj1;
+            if c_srj%notfound then
+               bell; message('PEJ nije u evidenciji.');
+               raise form_trigger_failure;
+            end if;
+            close c_srj;
+         end if;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE PROCEDURE
+
+      NAME = promena_statusa_naloga
+      DEFINITION = <<<
+      procedure promena_statusa_naloga is
+         broj_zapisa number(4);
+      begin
+         broj_zapisa := 0;
+         :global.ime_polja := :system.trigger_field;
+         go_block('kam');
+         go_record(1);
+         while :system.record_status <> 'NEW' loop
+            promena_statusa_stavke;
+            next_record;
+         broj_zapisa := broj_zapisa + 1;
+         end loop;
+         go_record(1);
+         bell;
+         message('Obracun azuriran! Broj OS - '||to_char(broj_zapisa));
+      --  :prs.dazur := sysdate;
+      --  :prs.razur := user;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE PROCEDURE
+
+      NAME = promena_statusa_stavke
+      DEFINITION = <<<
+      procedure promena_statusa_stavke is
+         pom char(20);
+         stopa0 number(7,3);
+         rnv0 number(30,2);
+         rov0 number(30,2);
+         amort0 number(30,2);
+         rezid0 number(30,2);
+         amort1 number(30,2);
+         cursor c_1 is select kam_zak, am_stopa, kam_revred, kam_ramort,
+                kam_amort, nvl(kam_rezv,0) from kam
+                where kam_god = :kam.kam_god
+                and os_inv = :kam.os_inv
+                and srj_sifra = :ipej.srj_sifra;
+      begin
+         stopa0 := 0;
+         rnv0 := 0;
+         rov0 := 0;
+         amort0 := 0;
+         rezid0 := 0;
+         amort1 := 0;
+         if :kam.kam_zak = 'N' then
+          open c_1;
+          fetch c_1 into pom, stopa0, rnv0, rov0, amort0, rezid0;
+          if c_1%found then
+          amort1 := (rnv0-rezid0)*stopa0/100;
+          amort0 := amort1;
+          rov0 := rov0 + amort1;
+          end if;
+          close c_1;
+          :kam.kam_amort := amort0;
+          :kam.kam_ramort := rov0;
+          :kam.kam_zak := 'Z';
+         elsif :kam.kam_zak <> 'N' then
+             bell; message('Obracun je zakljucan!');
+             raise form_trigger_failure;
+         end if;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE PROCEDURE
+
+      NAME = promena_vrednosti
+      DEFINITION = <<<
+      procedure promena_vrednosti is
+         broj_zapisa number(4);
+      begin
+         broj_zapisa := 0;
+         :global.ime_polja := :system.trigger_field;
+         go_block('kam');
+         go_record(1);
+         while :system.record_status <> 'NEW' loop
+            promena_vrednosti_stavke;
+            next_record;
+         broj_zapisa := broj_zapisa + 1;
+         end loop;
+         go_record(1);
+         bell;
+         message('Azurirane vrednosti za - Broj OS - '||to_char(broj_zapisa));
+      --  :prs.dazur := sysdate;
+      --  :prs.razur := user;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE PROCEDURE
+
+      NAME = promena_vrednosti_stavke
+      DEFINITION = <<<
+      procedure promena_vrednosti_stavke is
+         rezid0 number(30,2);
+         rezid1 number(30,2);
+         cursor c_1 is select  nvl(kam_rezv,0), nvl(kam_rrezv,0) from kam
+                where kam_god = :pitanje.pitanje
+                and os_inv = :kam.os_inv
+                and srj_sifra = :ipej.srj_sifra;
+      begin
+         rezid0 := 0;
+         rezid1 := 0;
+         if :kam.kam_zak = 'N'
+            and :kam.kam_rezv is null
+            and :kam.kam_rrezv is null then
+          open c_1;
+          fetch c_1 into rezid0, rezid1;
+          if c_1%found then
+          :kam.kam_rezv := rezid0;
+          :kam.kam_rrezv := rezid1;
+          end if;
+          close c_1;
+         else
+             bell; message('Rezidualne vrednosti vec postoje!');
+             raise form_trigger_failure;
+         end if;
+      end;
+      >>>
+
+   ENDDEFINE PROCEDURE
+
+   DEFINE TRIGGER
+
+      NAME = KEY-CLRFRM
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = Izbor PEJ
+      TEXT = <<<
+      :global.prev_block := :system.cursor_block;
+      go_block('ipej');
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-COMMIT
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      begin
+      -- :system.message_level := 20;
+      go_block('kam');
+      execute_query;
+      end;
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-EXIT
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      clear_form(NO_VALIDATE);
+      exit_form(NO_VALIDATE);
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-HELP
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      :global.subsys := 'OS';
+      :global.form := :system.current_form;
+      :global.block := :system.cursor_block;
+      :global.field := :system.cursor_field;
+      go_block('kam');
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-LISTVAL
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      list_values;
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-NXTBLK
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      begin
+      if :system.block_status = 'CHANGED' or :system.record_status='CHANGED'
+      then
+      bell;message('Morate zapamtiti promenu!');
+      else
+      next_field;
+      -- go_block('obr');
+      end if;
+      end;
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-PRVBLK
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      begin
+      if :system.block_status = 'CHANGED' or :system.record_status='CHANGED'
+      then
+      bell;message('Morate zapamtiti promenu!');
+      else
+      next_field;
+      -- go_block('obr');
+      end if;
+      end;
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = KEY-STARTUP
+      TRIGGER_TYPE = V3
+      SHOW_KEY = OFF
+      DESCRIPTION = 
+      TEXT = <<<
+      :system.message_level := 20;
+      :ipej.srj_sifra := :global.srj_sifra;
+      if not form_success then exit_form(no_validate); end if;
+      :system.message_level := 0;
+      :ctrl.srj_sifra := :ipej.srj_sifra;
+      :ctrl.date := sysdate;
+      :ctrl.forma := lower(:system.current_form);
+      if :obr.kam_god is null then
+         :obr.kam_god := 13.5;
+      end if;
+      if instr(:global.un,'@') = 0 then
+         :global.un := :global.un||'/'||:global.pw;
+      else
+         :global.un := substr(:global.un,1,instr(:global.un,'@') - 1)||'/'||
+                       :global.pw||'@'||
+                       substr(:global.un,instr(:global.un,'@') + 1);
+      end if;
+      go_block('obr');
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE TRIGGER
+
+      NAME = ucitavanje
+      TRIGGER_TYPE = V3
+      SHOW_KEY = ON
+      DESCRIPTION = 
+      TEXT = <<<
+      begin
+         :system.message_level := 5;
+         promena_vrednosti;
+         commit_form;
+         :system.message_level := 0;
+         execute_query(all_records);
+         go_field('kam_revred');
+      end;
+      >>>
+
+   ENDDEFINE TRIGGER
+
+   DEFINE BLOCK
+
+      NAME = ctrl
+      DESCRIPTION = 
+      TABLE = 
+      UNIQUE_KEY = OFF
+      UPDATE_KEY = OFF
+      IN_MENU = OFF
+      ROWS_DISPLAYED = 1
+      ROWS_BUFFERED = 1
+      BASE_LINE = 1
+      LINES_PER_ROW = 1
+      ARRAY_SIZE = 0
+      COLUMN_SECURITY = OFF
+      ORDERING = 
+
+      DEFINE FIELD
+
+         NAME = date
+         DATATYPE = DATE
+         LENGTH = 8
+         DISPLAY_LENGTH = 8
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 2
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = dd/mm/yy
+         OUTPUT_MASK = dd/mm/yy
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = anal_id
+         DATATYPE = CHAR
+         LENGTH = 2
+         DISPLAY_LENGTH = 2
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = OFF
+         PAGE = 1
+         LINE = 3
+         COLUMN = 79
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = OFF
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = ON
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = srj_sifra
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 3
+         COLUMN = 20
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = <<<
+         select srj_sifra into :ctrl.srj_sifra from srj
+         >>>
+         LOV_TITLE = Lista PEJ-a
+         LOV_X = 60
+         LOV_Y = 8
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = ON
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = forma
+         DATATYPE = CHAR
+         LENGTH = 8
+         DISPLAY_LENGTH = 8
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 71
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+   ENDDEFINE BLOCK
+
+   DEFINE BLOCK
+
+      NAME = obr
+      DESCRIPTION = 
+      TABLE = 
+      UNIQUE_KEY = OFF
+      UPDATE_KEY = OFF
+      IN_MENU = ON
+      ROWS_DISPLAYED = 1
+      ROWS_BUFFERED = 1
+      BASE_LINE = 1
+      LINES_PER_ROW = 1
+      ARRAY_SIZE = 0
+      COLUMN_SECURITY = OFF
+      ORDERING = 
+
+      DEFINE FIELD
+
+         NAME = KAM_GOD
+         DATATYPE = CHAR
+         LENGTH = 4
+         DISPLAY_LENGTH = 4
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 3
+         COLUMN = 12
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 99.9
+         OUTPUT_MASK = 99.9
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_RREZV
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 20
+         COLUMN = 20
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_REZV
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 20
+         COLUMN = 3
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_AMORT
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 20
+         COLUMN = 2
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_REVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 20
+         COLUMN = 19
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_RAMORT
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 20
+         COLUMN = 36
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_NABVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 20
+         COLUMN = 19
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_PVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 20
+         COLUMN = 36
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SUM_AMORT0
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 20
+         COLUMN = 53
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+   ENDDEFINE BLOCK
+
+   DEFINE BLOCK
+
+      NAME = kam
+      DESCRIPTION = 
+      TABLE = kam
+      UNIQUE_KEY = OFF
+      UPDATE_KEY = OFF
+      IN_MENU = ON
+      ROWS_DISPLAYED = 12
+      ROWS_BUFFERED = 16
+      BASE_LINE = 7
+      LINES_PER_ROW = 1
+      ARRAY_SIZE = 0
+      COLUMN_SECURITY = OFF
+      ORDERING = <<<
+      where kam_god = :obr.kam_god
+        and srj_sifra = :ipej.srj_sifra
+      order by os_inv
+      >>>
+
+      DEFINE TRIGGER
+
+         NAME = PRE-QUERY
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         :obr.sum_nabvred := 0;
+         :obr.sum_pvred := 0;
+         :obr.sum_amort0 := 0;
+         :obr.sum_amort := 0;
+         :obr.sum_revred := 0;
+         :obr.sum_ramort := 0;
+         :obr.sum_rezv := 0;
+         :obr.sum_rrezv := 0;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = POST-QUERY
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         :obr.sum_nabvred := nvl(:obr.sum_nabvred,0) + nvl(:kam_nabvred,0);
+         :obr.sum_pvred := nvl(:obr.sum_pvred,0) + nvl(:kam_pvred,0);
+         :obr.sum_amort0 := nvl(:obr.sum_amort0,0) + nvl(:kam_amort0,0);
+         :obr.sum_amort := nvl(:obr.sum_amort,0) + nvl(:kam_amort,0);
+         :obr.sum_revred := nvl(:obr.sum_revred,0) + nvl(:kam_revred,0);
+         :obr.sum_ramort := nvl(:obr.sum_ramort,0) + nvl(:kam_ramort,0);
+         :obr.sum_rezv := nvl(:obr.sum_rezv,0) + nvl(:kam_rezv,0);
+         :obr.sum_rrezv := nvl(:obr.sum_rrezv,0) + nvl(:kam_rrezv,0);
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = ON-INSERT
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         null;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = ON-MESSAGE
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         if message_code = 40400 then
+         bell;message('Prvo morate zapamtiti promene!');
+         else
+         bell;message(MESSAGE_TYPE||' '||to_char(MESSAGE_CODE)||
+         ': '||message_text);
+         end if;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = KEY-CLRREC
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         begin
+            :system.message_level := 5;
+            promena_statusa_naloga;
+            commit_form;
+            :system.message_level := 0;
+            execute_query(all_records);
+            go_field('kam_revred');
+         end;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = KEY-COMMIT
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         commit_form;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = KEY-HELP
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         begin
+         go_block('pitanje');
+         clear_block;
+         end;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = KEY-NXTBLK
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         begin
+         next_field;
+         if :system.block_status = 'CHANGED' or :system.record_status='CHANGED'
+         then
+         bell;message('Morate zapamtiti promenu!');
+         else
+         go_block('obr');
+         end if;
+         end;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE TRIGGER
+
+         NAME = KEY-PRVBLK
+         TRIGGER_TYPE = V3
+         SHOW_KEY = ON
+         DESCRIPTION = 
+         TEXT = <<<
+         begin
+         next_field;
+         if :system.block_status = 'CHANGED' or :system.record_status='CHANGED'
+         then
+         bell;message('Morate zapamtiti promenu!');
+         else
+         go_block('obr');
+         end if;
+         end;
+         >>>
+
+      ENDDEFINE TRIGGER
+
+      DEFINE FIELD
+
+         NAME = OS_INV
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 3
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+         DEFINE TRIGGER
+
+            NAME = POST-CHANGE
+            TRIGGER_TYPE = V3
+            SHOW_KEY = ON
+            DESCRIPTION = 
+            TEXT = <<<
+            declare
+               cursor c_os is select os_naziv from os_nab
+                                 where os_inv = :kam.os_inv
+                                   and srj_sifra = :ctrl.srj_sifra;
+            begin
+               open c_os;
+               fetch c_os into :kam.naziv;
+               if c_os%notfound then
+                  bell; message('Osnovno sredstvo sa ovim inv. brojem ne postoji.');
+                  close c_os;
+                  raise form_trigger_failure;
+               end if;
+               close c_os;
+            end;
+            >>>
+
+         ENDDEFINE TRIGGER
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = NAZIV
+         DATATYPE = CHAR
+         LENGTH = 60
+         DISPLAY_LENGTH = 17
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 14
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_OD
+         DATATYPE = DATE
+         LENGTH = 8
+         DISPLAY_LENGTH = 8
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = ON
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 32
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = dd/mm/yy
+         OUTPUT_MASK = dd/mm/yy
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_DO
+         DATATYPE = DATE
+         LENGTH = 8
+         DISPLAY_LENGTH = 8
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = ON
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 41
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = dd/mm/yy
+         OUTPUT_MASK = dd/mm/yy
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = SRJ_SIFRA
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 50
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = RJ_ID
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 61
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = OS_IZG
+         DATATYPE = CHAR
+         LENGTH = 1
+         DISPLAY_LENGTH = 1
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 72
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_MES
+         DATATYPE = NUMBER
+         LENGTH = 2
+         DISPLAY_LENGTH = 2
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 74
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_ZAK
+         DATATYPE = CHAR
+         LENGTH = 1
+         DISPLAY_LENGTH = 1
+         QUERY_LENGTH = 1
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 1
+         LINE = 1
+         COLUMN = 77
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = AM_GRP
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 1
+         COLUMN = 2
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = AM_STOPA
+         DATATYPE = NUMBER
+         LENGTH = 11
+         DISPLAY_LENGTH = 5
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 1
+         COLUMN = 13
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 99.99
+         OUTPUT_MASK = 99.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_NABVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 1
+         COLUMN = 19
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_PVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 1
+         COLUMN = 36
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_AMORT0
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 2
+         LINE = 1
+         COLUMN = 53
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_AMORT
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 1
+         COLUMN = 2
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_REVRED
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 1
+         COLUMN = 19
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_RAMORT
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 1
+         COLUMN = 36
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KONTO
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 6
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 1
+         COLUMN = 53
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KONTOO
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 6
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 3
+         LINE = 1
+         COLUMN = 60
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_REZV
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 1
+         COLUMN = 3
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_RREZV
+         DATATYPE = NUMBER
+         LENGTH = 16
+         DISPLAY_LENGTH = 16
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 1
+         COLUMN = 20
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 9,999,999,999.99
+         OUTPUT_MASK = 9,999,999,999.99
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = ZGNAL_BROJ
+         DATATYPE = CHAR
+         LENGTH = 16
+         DISPLAY_LENGTH = 12
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 1
+         COLUMN = 37
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_GOD
+         DATATYPE = CHAR
+         LENGTH = 4
+         DISPLAY_LENGTH = 4
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 1
+         COLUMN = 50
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 99.9
+         OUTPUT_MASK = 99.9
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+      DEFINE FIELD
+
+         NAME = KAM_DATUM
+         DATATYPE = DATE
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = ON
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 4
+         LINE = 1
+         COLUMN = 55
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = dd/mm/yyyy
+         OUTPUT_MASK = dd/mm/yyyy
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = OFF
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = ON
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = OFF
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+      ENDDEFINE FIELD
+
+   ENDDEFINE BLOCK
+
+   DEFINE BLOCK
+
+      NAME = pitanje
+      DESCRIPTION = 
+      TABLE = 
+      UNIQUE_KEY = OFF
+      UPDATE_KEY = OFF
+      IN_MENU = ON
+      ROWS_DISPLAYED = 1
+      ROWS_BUFFERED = 
+      BASE_LINE = 1
+      LINES_PER_ROW = 0
+      ARRAY_SIZE = 0
+      COLUMN_SECURITY = OFF
+      ORDERING = 
+
+      DEFINE FIELD
+
+         NAME = pitanje
+         DATATYPE = CHAR
+         LENGTH = 4
+         DISPLAY_LENGTH = 4
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 30
+         LINE = 10
+         COLUMN = 53
+         HELP = 
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = 
+         LOV_TITLE = 
+         LOV_X = 0
+         LOV_Y = 0
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = OFF
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = ON
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = ON
+         UPPERCASE = ON
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+         DEFINE TRIGGER
+
+            NAME = KEY-NXTFLD
+            TRIGGER_TYPE = V3
+            SHOW_KEY = ON
+            DESCRIPTION = 
+            TEXT = <<<
+            begin
+              if :pitanje.pitanje like '__._' then
+              execute_trigger ('ucitavanje');
+              go_block('kam');
+              else
+              bell;message('Uneli ste nekorektan broj predhodnog obracuna!');
+              go_block('kam');
+            end if;
+            end;
+            >>>
+
+         ENDDEFINE TRIGGER
+
+      ENDDEFINE FIELD
+
+   ENDDEFINE BLOCK
+
+   DEFINE BLOCK
+
+      NAME = ipej
+      DESCRIPTION = 
+      TABLE = 
+      UNIQUE_KEY = OFF
+      UPDATE_KEY = OFF
+      IN_MENU = OFF
+      ROWS_DISPLAYED = 1
+      ROWS_BUFFERED = 
+      BASE_LINE = 1
+      LINES_PER_ROW = 0
+      ARRAY_SIZE = 0
+      COLUMN_SECURITY = OFF
+      ORDERING = 
+
+      DEFINE FIELD
+
+      /* Selekcija poslovno ekonomske jedinice. */
+
+         NAME = srj_sifra
+         DATATYPE = CHAR
+         LENGTH = 10
+         DISPLAY_LENGTH = 10
+         QUERY_LENGTH = 0
+         BASE_TABLE = OFF
+         PRIMARY_KEY = OFF
+         MANDATORY = OFF
+         DISPLAYED = ON
+         PAGE = 9
+         LINE = 10
+         COLUMN = 22
+         HELP = Unesite identifikaciju poslovno-ekonomske jedinice
+         LOW_VALUE = 
+         HIGH_VALUE = 
+         LOV_TEXT = <<<
+         select distinct srj_sifra into :ipej.srj_sifra
+         from srj order by srj_sifra
+         >>>
+         LOV_TITLE = Lista PEJ-a
+         LOV_X = 60
+         LOV_Y = 8
+         INPUT_MASK = 
+         OUTPUT_MASK = 
+         EDIT_X = 0
+         EDIT_Y = 0
+         EDIT_TOP_TITLE = 
+         EDIT_BOTTOM_TITLE = 
+         EDIT_WORD_WRAP = ON
+         DEFAULT = 
+         ENFORCE_KEY_FROM = 
+         ECHO = ON
+         INPUT = ON
+         UPDATE = OFF
+         UPDATE_NULL = OFF
+         QUERY = OFF
+         FIXED_LENGTH = OFF
+         AUTOSKIP = OFF
+         AUTOHELP = ON
+         UPPERCASE = OFF
+         PROMPT = 
+         PROMPT_POSITION = BESIDE
+         PROMPT_REPEAT = OFF
+
+         DEFINE TRIGGER
+
+            NAME = key-nxtfld
+            TRIGGER_TYPE = V3
+            SHOW_KEY = OFF
+            DESCRIPTION = 
+            TEXT = <<<
+            declare
+               srj1 srj.srj_sifra%type;
+               cursor c_srj is select srj_sifra from srj
+                               where srj_sifra = :ipej.srj_sifra;
+            begin
+            if :ipej.srj_sifra = '%' then
+                  :global.srj_sifra := :ipej.srj_sifra;
+                  :ctrl.srj_sifra := :ipej.srj_sifra;
+                   go_block('god');
+            else
+               open c_srj;
+               fetch c_srj into srj1;
+               if c_srj%notfound then
+                  bell; message('Poslovno-ekonomska jedinica nije definisana.');
+               else
+                  :global.srj_sifra := :ipej.srj_sifra;
+                  :ctrl.srj_sifra := :ipej.srj_sifra;
+                  go_block('obr');
+               end if;
+               close c_srj;
+            end if;
+            end;
+            >>>
+
+         ENDDEFINE TRIGGER
+
+         DEFINE TRIGGER
+
+            NAME = key-others
+            TRIGGER_TYPE = V3
+            SHOW_KEY = OFF
+            DESCRIPTION = 
+            TEXT = <<<
+            null;
+            >>>
+
+         ENDDEFINE TRIGGER
+
+      ENDDEFINE FIELD
+
+   ENDDEFINE BLOCK
+
+
+   DEFINE SCREEN
+
+      DEFINE PAGE
+
+         PAGE = 1
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = OFF
+         TITLE = 
+         PAGE_XS = 100
+         PAGE_YS = 24
+         PAGE_PX0 = 1
+         PAGE_PY0 = 1
+         PAGE_PXS = 80
+         PAGE_PYS = 22
+         PAGE_SX0 = 1
+         PAGE_SY0 = 1
+         MODE = TEXT
+         BOILER = <<<
+                              Obracun amortizacjie gradjevinskih objekata
+         >>>
+         LINE = 3
+         BOILER = <<<
+            Obracun:      /
+         >>>
+         LINE = 5
+         BOILER = <<<
+           Inven.br.  Naziv             Od       Do       Pej        Org.jed.   I BM Z
+         >>>
+         MODE = BOX
+         LINE = 6
+         BOILER = <<<
+           <<<<<<<<-- ----------------- -------- -------- ---------- ---------- <<<----
+         >>>
+
+      ENDDEFINE PAGE
+
+      DEFINE PAGE
+
+         PAGE = 2
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = OFF
+         TITLE = 
+         PAGE_XS = 90
+         PAGE_YS = 20
+         PAGE_PX0 = 1
+         PAGE_PY0 = 5
+         PAGE_PXS = 70
+         PAGE_PYS = 18
+         PAGE_SX0 = 11
+         PAGE_SY0 = 5
+         MODE = TEXT
+         LINE = 5
+         BOILER = <<<
+          Amort.gr.  Stopa Nabavna vrednost   Prom.vrednosti  Otpisana vredn.
+         >>>
+         MODE = BOX
+         LINE = 6
+         BOILER = <<<
+          <<<<<<---- <<<<< <<<<<<----<<<<<< <<<<<<<<<<-----< <<<<<<<<<<-----<
+         >>>
+         LINE = 19
+         BOILER = <<<
+                           <<<<<<----<<<<<< <<<<<<----<<<<<< <<<<<<----<<<<<<
+         >>>
+
+      ENDDEFINE PAGE
+
+      DEFINE PAGE
+
+         PAGE = 3
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = OFF
+         TITLE = 
+         PAGE_XS = 90
+         PAGE_YS = 20
+         PAGE_PX0 = 1
+         PAGE_PY0 = 5
+         PAGE_PXS = 68
+         PAGE_PYS = 18
+         PAGE_SX0 = 13
+         PAGE_SY0 = 5
+         MODE = TEXT
+         LINE = 5
+         BOILER = <<<
+              Amortizacija Rev.nab.vrednost Rev.otp.vrednost Nab.kn Otp.kn
+         >>>
+         MODE = BOX
+         LINE = 6
+         BOILER = <<<
+          <<<<<<<<<<<<---- <<<<<<<<<<<<---- <<<<<<<<<<<<---- <<<<<< <<----
+         >>>
+         LINE = 19
+         BOILER = <<<
+          <<<<<<----<<<<<< <<<<<<----<<<<<< <<<<<<----<<<<<<
+         >>>
+
+      ENDDEFINE PAGE
+
+      DEFINE PAGE
+
+         PAGE = 4
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = OFF
+         TITLE = 
+         PAGE_XS = 90
+         PAGE_YS = 20
+         PAGE_PX0 = 1
+         PAGE_PY0 = 5
+         PAGE_PXS = 66
+         PAGE_PYS = 18
+         PAGE_SX0 = 15
+         PAGE_SY0 = 5
+         MODE = TEXT
+         LINE = 5
+         BOILER = <<<
+            Rezid. vrednost Rev.rezid.vredn.       Nalog  Obr. Datum obr.
+         >>>
+         MODE = BOX
+         LINE = 6
+         BOILER = <<<
+           <<<<<<<<<<<<---- <<<<<<<<<<<<---- <<<<<<<<<<<< <<<< <<<<<<----
+         >>>
+         LINE = 19
+         BOILER = <<<
+           <<<<<<----<<<<<< <<<<<<----<<<<<<
+         >>>
+
+      ENDDEFINE PAGE
+
+      DEFINE PAGE
+
+         PAGE = 9
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = ON
+         TITLE = Izbor Poslovno-Ekonomske Jedinice
+         PAGE_XS = 80
+         PAGE_YS = 20
+         PAGE_PX0 = 6
+         PAGE_PY0 = 5
+         PAGE_PXS = 40
+         PAGE_PYS = 7
+         PAGE_SX0 = 20
+         PAGE_SY0 = 10
+         MODE = TEXT
+         LINE = 10
+         BOILER = <<<
+                  Izbor PEJ ?
+         >>>
+
+      ENDDEFINE PAGE
+
+      DEFINE PAGE
+
+         PAGE = 30
+         POPUP = ON
+         BORDER = ON
+         HORIZONTAL_SCROLL_BAR = OFF
+         VERTICAL_SCROLL_BAR = OFF
+         DISSOLVE = OFF
+         TITLE = 
+         PAGE_XS = 80
+         PAGE_YS = 20
+         PAGE_PX0 = 18
+         PAGE_PY0 = 19
+         PAGE_PXS = 41
+         PAGE_PYS = 5
+         PAGE_SX0 = 40
+         PAGE_SY0 = 18
+         MODE = TEXT
+         LINE = 10
+         BOILER = <<<
+                            Predh.obr.za ucitavanje rez.vred.
+         >>>
+
+      ENDDEFINE PAGE
+
+   ENDDEFINE SCREEN
+
+ENDDEFINE FORM
