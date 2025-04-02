@@ -1,0 +1,532 @@
+
+
+
+
+
+
+Opis funkcija za Èelik api v1.4.2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Decembar 2024.
+
+
+
+
+
+Sadržaj
+Uvod	3
+O API-ju	3
+Softver i hardver	3
+Funkcije Èelik apija	4
+EidSetOption	5
+EidStartup	6
+EidCleanup	7
+EidBeginRead	8
+EidEndRead	9
+EidReadDocumentData	10
+EidReadFixedPersonalData	11
+EidReadVariablePersonalData	12
+EidReadPortrait	13
+EidReadCertificate	14
+EidChangePassword	16
+EidVerifySignature	17
+Strukture Èelik apija	18
+EID_DOCUMENT_DATA	19
+EID_FIXED_PERSONAL_DATA	20
+EID_VARIABLE_PERSONAL_DATA	21
+EID_PORTRAIT	22
+EID_CERTIFICATE	23
+
+O API-ju
+
+ÈELIK (Èitaè Elektronske LIène Karte) api služi za oèitavanje èipa elektronske liène karte sa operativnim sistemom Apollo v2.43 u sluèaju stare liène karte (izdate pre 18.08.2014. godine) i operativnim sistemima Gemalto MultiApp i Veridos SmartCafe u sluèaju nove liène karte (izdate posle 18.08.2014. godine). Èelik api se sastoji od tri fajla (CelikApi.dll, CelikApi.h, i CelikApi.lib) i prateæe dokumentacije (ovog dokumenta).
+ÈELIK api namenjen je prevashodno programerskim kuæama za integraciju u poslovnim sistemima.
+Pored liènih karata graðana Republike Srbije ovaj api može da èita i liènu kartu za strance, kao i boravišnu dozvolu.
+
+
+Softver i hardver
+
+Za korišæenje ÈELIK apija zahteva se:
+
+
+Microsoft Windows operativni sistem
+Podržani operativni sistemi:
+* Windows: Windows Vista SP-1, Windows 7 SP-1, Windows 10, Windows 11.
+
+
+Instaliran èitaè pametnih kartica (po uputstvu proizvoðaèa).
+Radi sa svim èitaèima pametnih kartica koji se mogu komercijalno nabaviti kod prodavaca raèunarske opreme.
+
+
+
+Funkcije biblioteke Èelik api su sledeæe:
+
+EidSetOptionKontrola rada biblioteke.EidStartupInicijalizacija rada biblioteke, poziva se jednom na poèetku radaEidCleanupKraj rada sa bibliotekom, poziva se jednom na kraju radaEidBeginReadPoèetak rada sa jednom liènom kartomEidEndReadKraj rada sa liènom kartomEidReadDocumentDataÈitanje bloka podataka o dokumentuEidReadFixedPersonalDataÈitanje bloka nepromenljivih podatakaEidReadVariablePersonalDataÈitanje bloka promenljivih podatakaEidReadPortraitÈitanje slike portretaEidReadCertificateÈitanje sertifikata sa karticeEidChangePasswordPromena lozinkeEidVerifySignatureVerifikacija blokova podataka
+Da bi se koristio Èelik api pre bilo koje druge funkcije treba pozvati EidStartup, i to samo jednom. Kraj rada sa bibliotekom se oznaèava pozivom funkcije EidCleanup. Posle izvršenja funkcije EidCleanup, moguæe je ponovo pozvati EidStartup.
+Sesija sa liènom kartom se otvara pozivom funkcije EidBeginRead. Ova funkcija je neophodna ne samo za èitanje podataka, nego i za promenu lozinke i verifikaciju
+potpisa podataka. Sesija sa liènom kartom se zatvara pozivom funkcije EidEndRead. Da bi se zapoèeo rad sa novom liènom kartom neophodno je prvo završiti rad sa prethodnom.
+Ako se više od jedne liène karte èita pod istom sesijom podaci neæe biti ispravni, i može doæi do grešaka u èitanju i verifikaciji. Veoma stari programi koji su èitali podatke pod istom sesijom moraju da budu ispravljeni tako da liènim kartama
+pristupaju u odvojenom sesijama. Privremeno rešenje, bez mnogo izmena u kodu, je
+ukljuèivanje opcije EID_O_KEEP_CARD_CLOSED funkcijom EidSetOption. Stari program æe raditi kao i ranije, ali æe pristup kartici biti sporiji.
+U nastavku je dat opis svih funkcija.
+
+	EidSetOption	
+
+
+Prototip funkcije
+int WINAPI EidSetOption(int nOptionID, UINT_PTR nOptionValue);
+
+Ulazni argumenti
+* Argument nOptionID tipa int koji predstavlja identifikator opcije. Vrednost za ovaj parametar može biti sledeæa:
+
+EID_O_KEEP_CARD_CLOSEDKontekst sa karticom se briše posle svake pojedinaène operacije nad karticom
+* Argument nOptionValue tipa int èije znaèenje zavisi od vrednosti argumenta
+nOptionID. Validne vrednosti su sledeæe:
+
+EID_O_KEEP_CARD_CLOSED0 – opcija je iskljuèena
+1 – opcija je ukljuèena
+Izlazni argumenti
+Nema
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+Naèin upotrebe
+Funkcija postavlja opciju koja kontroliše rad biblioteke.
+
+Ako je opcija EID_O_KEEP_CARD_CLOSED ukljuèena onda æe se svaka operacija nad karticom izvršavati u posebnom kontekstu. Ova opcija je korisna samo za staru verziju liène karte (Apollo), a ignoriše se u radu sa novom verzijom (Gemalto i Veridos). Ova opcija je predviðena kao privremeno rešenje za korisnike biblioteke koji su u ranijoj verziji biblioteke (pre 1.1) funkciju EidBeginRead pozivali samo jednom za sve kartice, na poèetku rada, umesto svaki put kad se pristupa novoj kartici. Takav kod za novu verziju biblioteke treba da se ispravi, ali æe postojeæi kod raditi (usporeno) i ako se ukljuèi navedena opcija.
+
+	EidStartup	
+
+
+Prototip funkcije
+EID_API int WINAPI EidStartup(int nApiVersion);
+
+
+
+Ulazni argumenti
+* Argument nApiVersion tipa int koji predstavlja verziju apija èije se funkcije pozivaju. Jedina trenutno ispravna vrednost je 4.
+
+
+Izlazni argumenti
+Nema
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Ova funkcija se poziva samo jednom (obavezno) na poèetku rada sa apijem. Na kraju rada se obavezno mora pozvati EidCleanup.
+
+	EidCleanup	
+
+
+Prototip funkcije
+EID_API int WINAPI EidCleanup();
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+Nema
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Ova funkcija se poziva samo jednom (obavezno) na kraju rada sa apijem.
+
+	EidBeginRead	
+
+
+Prototip funkcije
+EID_API int WINAPI EidBeginRead(LPCSTR szReader, int* pnCardType);
+
+
+
+Ulazni argumenti
+* Argument szReader tipa LPCSTR je ime èitaèa pametnih kartica koji se koristi.
+
+
+Izlazni argumenti
+* Argument pnCardType tipa pokazivaèa na int je izlazni parametar, kojim korisnik može da ustanovi koji je tip identifikacionog dokumenta. Vrednosti koje funkcija može da vrati su sledeæe:
+
+EID_CARD_ID2008 = 1Stara lièna karta, ApolloEID_CARD_ID2014 = 2Nova lièna karta, Gemalto ili VeridosEID_CARD_IF2020 = 3Lièna karta za stranceEID_CARD_RP2024 = 4Boravišna dozvola za strance
+Ovaj parametar može imati vrednost 0 (odnosno NULL) i u tom sluèaju funkcija ga ignoriše. Ignorisanje se ipak ne preporuèuje kad se èitaju podaci.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Ova funkcija se poziva obavezno pre poziva bloka komandi za èitanje podataka i sertifikata sa liène karte, kao i za promenu lozinke i verifikaciju potpisa podataka. Na kraju bloka se obavezno mora pozvati EidEndRead.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidStartup.
+
+	EidEndRead	
+
+
+Prototip funkcije
+EID_API int WINAPI EidEndRead();
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+Nema
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Ova funkcija se poziva obavezno na kraju bloka komandi za pristup liènoj karti.
+
+	EidReadDocumentData	
+
+
+Prototip funkcije
+int WINAPI EidReadDocumentData(PEID_DOCUMENT_DATA pData);
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+* Argument pData je tipa PEID_DOCUMENT_DATA koji predstavlja pokazivaè na
+strukturu u koju se smeštaju podaci o dokumentu sa liène karte. Struktura mora biti unapred alocirana. Pomenuta struktura je deklarisana u CelikApi.h.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Funkcija èita podatke vezane za sam dokument i smešta ih u izlaznu strukturu na koju pokazuje argument pData.
+
+Podaci su u UTF-8 formatu i ne završavaju se NUL karakterom.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+Polje documentSerialNumber je validno samo za liènu kartu za strance (EID_CARD_IF2020) i boravišnu dozvolu (EID_CARD_RP2024). Polje chipSerialNumber je validno samo za liènu kartu za strance. Polje documentName je validno samo za boravišnu dozvolu.
+
+	EidReadFixedPersonalData	
+
+
+Prototip funkcije
+int WINAPI EidReadFixedPersonalData(PEID_FIXED_PERSONAL_DATA pData);
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+* Argument pData je tipa PEID_FIXED_PERSONAL_DATA koji predstavlja pokazivaè na strukturu u koju se smeštaju nepromenljivi lièni podaci sa liène karte.
+Struktura mora biti unapred alocirana. Pomenuta struktura je deklarisana u CelikApi.h.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Funkcija èita nepromenljive liène podatke iz liène karte i smešta ih u izlaznu strukturu na koju pokazuje argument pData.
+
+Podaci su u UTF-8 formatu i ne završavaju se NUL karakterom.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+Polje nationalityFull je validno samo za liènu kartu za strance (EID_CARD_IF2020) i boravišnu dozvolu (EID_CARD_RP2024). Polje statusOfForeigner je validno samo za liènu kartu za strance. Polja purposeOfStay i eNote su validna samo za boravišnu dozvolu.
+
+	EidReadVariablePersonalData	
+
+
+Prototip funkcije
+int WINAPI EidReadVariablePersonalData( PEID_VARIABLE_PERSONAL_DATA pData);
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+* Argument pData je tipa PEID_VARIABLE_PERSONAL_DATA koji predstavlja pokazivaè na strukturu u koju se smeštaju promenljivi podaci sa liène karte. Struktura mora biti unapred alocirana. Pomenuta struktura je deklarisana u CelikApi.h.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Funkcija èita promenljive podatke iz liène karte i smešta ih u izlaznu strukturu na koju pokazuje argument pData.
+
+Podaci su u UTF-8 formatu i ne završavaju se NUL karakterom.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+	EidReadPortrait	
+
+
+Prototip funkcije
+int WINAPI EidReadPortrait(PEID_PORTRAIT pData);
+
+
+
+Ulazni argumenti
+Nema
+
+
+Izlazni argumenti
+* Argument pData je tipa PEID_PORTRAIT koji predstavlja pokazivaè na strukturu u koju se smešta slika sa liène karte. Struktura mora biti unapred alocirana. Pomenuta struktura je deklarisana u CelikApi.h.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Funkcija èita sliku iz liène karte i smešta je u izlaznu strukturu na koju pokazuje argument pData.
+
+Slika je u JPG formatu.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+	EidReadCertificate	
+
+
+Prototip funkcije
+int WINAPI EidReadCertificate(
+PEID_CERTIFICATE pData, int certificateType);
+
+
+
+Ulazni argumenti
+* Argument certificateType tipa int koji predstavlja traženi tip sertifikata. Vrednosti za ovaj parametar mogu biti sledeæe:
+
+EID_Cert_MoiIntermediateCASertifikat potpisnika druga dva sertifikataEID_Cert_User1Sertifikat vlasnika za autentikacijuEID_Cert_User2Sertifikat vlasnika za potpisivanjeEID_Cert_SIG_FIXEDSertifikat potpisnika bloka nepromenljivih podatakaEID_Cert_SIG_VARIABLESertifikat potpisnika bloka promenljivih podataka
+Izlazni argumenti
+Argument pData je tipa PEID_CERTIFICATE koji predstavlja pokazivaè na strukturu u koju se smešta sertifikat sa liène karte. Struktura mora biti unapred alocirana. Pomenuta struktura je deklarisana u CelikApi.h.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Za parametar certificateType vrednosti EID_Cert_MoiIntermediateCA, EID_Cert_User1, i EID_Cert_User2 se mogu koristiti samo za stari tip liène karte (Apollo). Od verzije Èelik API 1.4.2. vrednosti EID_Cert_SIG_FIXED i EID_Cert_SIG_VARIABLE se mogu koristiti samo za nove liène karte. Pošto interfejs nije menjan, nego su samo dodati novi tipovi sertifikata, ovom prilikom nije promenjena verzija apija, koja se navodi u funkciji EidStartup.
+
+Funkcija èita podatke vezane za sam dokument i smešta ih u izlaznu strukturu na koju pokazuje argument pData.
+
+Sertifikat je u X.509 formatu.
+
+Potpisnik podataka može biti radnik MUP. U sertifikatu radnika MUP se nalaze lièni podaci vlasnika. Ti podaci podležu zakonu o zaštiti podataka o liènosti. Èelik aplikacija na primer prilikom prikaza vlasnika sertifikata zamenjuje JMBG vlasnika zvezdicama.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+	EidChangePassword	
+
+
+Prototip funkcije
+EID_API int WINAPI EidChangePassword(
+LPCSTR szOldPassword, LPCSTR szNewPassword, int* pnTriesLeft);
+
+
+
+Ulazni argumenti
+* Argument szOldPassword tipa LPCSTR koji je trenutna lozinka korisnika.
+* Argument szNewPassword tipa LPCSTR koji je nova lozinka korisnika.
+
+
+Izlazni argumenti
+* Argument pnTriesLeft tipa pokazivaèa na int koji je broj preostalih pokušaja unosa lozinke, pre nego što se pametna kartica blokira. Ovaj parametar može da ima vrednost 0 (odnosno NULL) i u tom sluèaju funkcija ga ignoriše.
+
+
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+
+
+Naèin upotrebe
+Ova funkcija se može koristiti samo za stari tip liène karte (Apollo). Za nove liène karte funkcija vraæa povratnu vrednost EID_E_UNABLE_TO_EXECUTE. Èelik api nema funkcionalnost promene lozinke na novoj liènoj karti.
+
+Funkcija menja lozinku korisnika na liènoj karti. Lozinka može da ima najmanje 5, a najviše 16 znakova. Format za oba parametra je kodna strana ISO-8859-1. Svi simboli u ovoj kodnoj strani su u UTF-8 formatu predstavljeni jednim bajtom po simbolu.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+	EidVerifySignature	
+
+
+Prototip funkcije
+int WINAPI EidVerifySignature(UINT nSignatureID);
+
+Ulazni argumenti
+* Argument nSignatureID tipa unsigned int koji predstavlja identifikator potpisa. Vrednosti za ovaj parametar mogu biti sledeæe:
+
+EID_SIG_CARDPotpis kljuènih podataka u dokumentuEID_SIG_FIXEDPotpis blokova nepromenljivih podatakaEID_SIG_VARIABLEPotpis bloka promenljivih podatakaEID_SIG_PORTRAITPotpis slike portreta
+Izlazni argumenti
+Nema
+Povratna vrednost
+Funkcija vraæa EID_OK ako je uspešno izvršena ili kod greške koji je opisan u CelikApi.h.
+Naèin upotrebe
+Potpis slike portreta postoji samo u starom tipu liène karte (Apollo). U novoj liènoj karti (Gemalto i Veridos) potpis blokova nepromenljivih podataka pokriva i portret. Ako se u sluèaju nove liène karte pozove ova funkcija s parametrom EID_SIG_PORTRAIT funkcija vraæa povratnu vrednost EID_E_UNABLE_TO_EXECUTE.
+
+Funkcija, na osnovu parametra s kojim je pozvana, èita iz liène karte odgovarajuæe podatke, sertifikat potpisnika tih podataka, kao i sam potpis. Lanac poverenja za sertifikat potpisnika se uspostavlja koristeæi raspoložive sertifikate iz skladišta sertifikata (eng. certificate store) operativnog sistema. Na kraju se proverava da li potpis podataka odgovara datom sertifikatu.
+
+Ako funkcija ne može da uspostavi lanac poverenja za sertifikat potpisnika onda æe vratiti vrednost greške EID_E_SECFORMAT_CHECK_CERT_ERROR. Ovaj kod ne znaèi da podaci nisu ispravni, nego da verifikacija nije uspela zbog toga što nije najpre uspostavljen lanac poverenja.
+
+Pre poziva ove funkcije mora se uspešno izvršiti poziv funkcije EidBeginRead.
+
+Strukture Èelik apija
+
+Strukture èelik apija odgovaraju blokovima podataka na kartici. Strukture su sledeæe:
+
+EID_DOCUMENT_DATAPodaci o samom dokumentuEID_FIXED_PERSONAL_DATANepromenljivi podaci vlasnikaEID_VARIABLE_PERSONAL_DATAPromenljivi podaci vlasnikaEID_PORTRAITPortret vlasnikaEID_CERTIFICATESertifikat
+Strukture su iste za sve tipove dokumenata, ali sva polja u njima nisu namenjena za svaki tip dokumenta.
+Strukture su se menjale sa verzijama apija. Nova polja su dodavana, ili postojeæa polja proširivana. Verzija apija se bira parametrom nApiVersion prilikom poziva funkcije EidStartup. Kada se u kodu promeni verzija potrebno je prilagoditi kod. U najmanju ruku potrebno je ponovo kompajlirati kod, da bi se koristile nove verzije strukture.
+Za projekte koji nisu realizovani u programskim jezicima C i C++, i koji ne mogu da direktno referenciraju fajl zaglavlja CelikApi.h, potrebno je da se posebno obrati pažnja na sadržaj i dužinu svih polja u svim strukturama, prilikom prilagoðavanja projekta novoj verziji apija.
+Svaki podatak u svakoj strukturi ima dva polja, bafer za sadržaj i dužinu podatka u tom baferu, u bajtovima. Velièina bafera, a time i maksimalna dužina podatka je data konstantom, koja je takoðe definisana u fajlu zaglavlja. Na primer, ime vlasnika
+kartice (eng. given name) ima dva polja u strukturi EID_FIXED_PERSONAL_DATA, sa velièinom bafera definisanom konstantom:
+const int EID_MAX_GivenName = 200;
+
+typedef struct
+{
+…
+char givenName[EID_MAX_GivenName]; int givenNameSize;
+…
+} EID_FIXED_PERSONAL_DATA;
+
+Programeri mogu da pretpostave da su sva polja enkodirana u UTF-8, mada neka polja mogu da imaju znake samo iz ASCII podskupa.
+U nastavku su detaljnije opisane sve strukture, kao i koja polja su relevantna za svaki tip dokumenta.
+
+	EID_DOCUMENT_DATA	
+
+
+Opis
+Struktura sadrži podatke o dokumentu, na primer datum do kog dokument važi. Ovi podaci se ne mogu promeniti na kartici.
+Podaci u strukturi
+U sledeæoj tabeli dati su podaci u ovoj strukturi, sa kratkim opisom i oznakom da se podatak koristi za svaki od èetiri tipova dokumenata koje api podržava.
+Dvocifreni broj posle tipa oznaèava godinu u kojoj je tip uveden.
+
+Ime podatkaOpisID08ID14IF20RP24Doc Reg NoRegistarski broj dokumenta????Document TypeTip dokumenta???Issuing DateDatum izdavanja????Expiry DateDatum važenja????Issuing AuthorityAutoritet koji je izdao dokument????Document Serial
+NumberSerijski broj dokumenta??Chip Serial NumberSerijski broj èipa kartice?Document NameIme dokumenta?
+Tip dokumenta je dvoslovna oznaka, uvedena tek od nove ID kartice. Zato i nije definisan za originalni ID dokument. Ako se u buduænosti desi da bude uvedena nova verzija nekog dokumenta, kao što se to desilo sa ID dokumentom u 2014. godini, ova oznaka se neæe promeniti za taj dokument. Tabela vrednosti za trenutne tipove dokumenata je sledeæa:
+
+EID_CARD_ID2008EID_CARD_ID2014EID_CARD_IF2020EID_CARD_RP2024IDIFRP
+Poslednje promene
+U verziji 4 apija, sa uvoðenjem tipa dokumenta RP, u ovoj strukturi promenjeno je sledeæe:
+
+* Dodata su polja za Document Name.
+
+	EID_FIXED_PERSONAL_DATA	
+
+
+Opis
+Struktura sadrži nepromenljive podatke o vlasniku, na primer ime vlasnika. Ovi podaci se ne mogu promeniti na kartici.
+Podaci u strukturi
+U sledeæoj tabeli dati su podaci u ovoj strukturi, sa kratkim opisom i oznakom da se podatak koristi za svaki od èetiri tipova dokumenata koje api podržava.
+Dvocifreni broj posle tipa oznaèava godinu u kojoj je tip uveden.
+
+Ime podatkaOpisID08ID14IF20RP24Personal NumberJedinstveni matièni broj????SurnamePrezime????Given NameIme????Parent Given NameIme roditelja??SexPol????Place Of BirthMesto roðenja??State Of BirthDržava roðenja????Date Of BirthDatum roðenja????Community of BirthOpština roðenja??Status Of ForeignerStatus stranca?NationalityNacionalnost??Purpose Of StaySvrha boravka stranca?E-NoteNapomena o boravku stranca?
+Poslednje promene
+U verziji 4 apija, sa uvoðenjem tipa dokumenta RP, u ovoj strukturi promenjeno je sledeæe:
+
+* Dodata su polja za Purpose Of Stay.
+* Dodata su polja za E-Note.
+
+	EID_VARIABLE_PERSONAL_DATA	
+
+
+Opis
+Struktura sadrži promenljive podatke o vlasniku, uglavnom vezane za adresu stanovanja. Ovi podaci se mogu promeniti.
+Podaci u strukturi
+U sledeæoj tabeli dati su podaci u ovoj strukturi, sa kratkim opisom i oznakom da se podatak koristi za svaki od èetiri tipova dokumenata koje api podržava.
+Dvocifreni broj posle tipa oznaèava godinu u kojoj je tip uveden.
+
+Ime podatkaOpisID08ID14IF20RP24StateDržava stanovanja???CommunityOpština????PlaceMesto????StreetUlica????House NumberKuæni broj????House LetterKuæno slovo????EntranceUlaz????FloorSprat????Apartment NumberBroj stana????Address DateDatum promene adrese???Adress LabelVrsta adrese??
+Poslednje promene
+U verziji 4 apija nema promena u ovoj strukturi.
+
+	EID_PORTRAIT	
+
+
+Opis
+Struktura sadrži portret vlasnika, u JPEG formatu. Ovaj podatak se ne može promeniti.
+Podaci u strukturi
+U sledeæoj tabeli dati su podaci u ovoj strukturi, sa kratkim opisom i oznakom da se podatak koristi za svaki od èetiri tipova dokumenata koje api podržava.
+Dvocifreni broj posle tipa oznaèava godinu u kojoj je tip uveden.
+
+Ime podatkaOpisID08ID14IF20RP24PortraitPortret vlasnika????
+Poslednje promene
+U verziji 4 apija nema promena u ovoj strukturi.
+
+	EID_CERTIFICATE	
+
+
+Opis
+Struktura sadrži sertifikat vlasnika, u X.509 DER formatu. Ovaj podatak se ne može promeniti.
+Podaci u strukturi
+U sledeæoj tabeli dati su podaci u ovoj strukturi, sa kratkim opisom i oznakom da se podatak koristi za svaki od èetiri tipova dokumenata koje api podržava.
+Dvocifreni broj posle tipa oznaèava godinu u kojoj je tip uveden.
+
+Ime podatkaOpisID08ID14IF20RP24CertificateSertifikat vlasnika????
+Poslednje promene
+U verziji 4 apija nema promena u ovoj strukturi.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
